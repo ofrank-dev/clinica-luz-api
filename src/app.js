@@ -37,6 +37,14 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get("/", (req, res) => {
+  res.json({
+    name: "Clínica Luz API",
+    status: "online",
+    health: "/api/health",
+  });
+});
+
 app.use("/api", routes);
 
 // 404 handler consistente
@@ -65,3 +73,4 @@ app.listen(PORT, () => {
   const baseInfo = publicBase ? `Base pública: ${publicBase}` : "Defina PUBLIC_BASE_URL para log de URL pública";
   console.log(`Servidor iniciado: porta ${PORT} | Base: /api | ${baseInfo}`);
 });
+
