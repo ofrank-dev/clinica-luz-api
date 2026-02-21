@@ -93,6 +93,8 @@ async function sendList(to, title, options = []) {
 }
 
 function pickNextType(options = []) {
+  const force = String(process.env.ZAPI_FORCE_TEXT || "").trim() === "1";
+  if (force) return "text";
   if (!options || !options.length) return "text";
   return options.length <= 3 ? "buttons" : "list";
 }
@@ -169,6 +171,7 @@ export async function zapiWebhook(req, res) {
     const reply = result?.reply || "Pronto.";
     const options = Array.isArray(result?.options) ? result.options : [];
     const type = pickNextType(options);
+    console.log("zapi reply:", { to: from, type, reply });
     if (type === "buttons") await sendButtons(from, reply, options);
     else if (type === "list") await sendList(from, reply, options);
     else await sendText(from, reply);
