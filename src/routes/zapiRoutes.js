@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { zapiHealth, zapiWebhook } from "../controllers/zapiController.js";
+import { zapiHealth, zapiWebhook, zapiStatus } from "../controllers/zapiController.js";
 
 const router = Router();
 
-router.get("/zapi/health", zapiHealth);
-router.post("/zapi/webhook", zapiWebhook);
+router.get("/health", zapiHealth);
+router.get("/status", zapiStatus);
+router.post("/webhook", zapiWebhook);
 
 export default router;

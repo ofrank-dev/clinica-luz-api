@@ -11,6 +11,21 @@ function basePath() {
   return `${b}/instances/${INSTANCE}/token/${TOKEN}`;
 }
 
+export async function zapiStatus(req, res) {
+  try {
+    if (!BASE || !TOKEN || !INSTANCE || !CLIENT_TOKEN) {
+      return res.status(400).json({ error: "missing_zapi_env" });
+    }
+    const url = `${basePath()}/status`;
+    const r = await axios.get(url, { headers: { "Client-Token": CLIENT_TOKEN } });
+    return res.json({ ok: true, data: r.data });
+  } catch (e) {
+    const st = e?.response?.status;
+    const data = e?.response?.data || e.message;
+    return res.status(st || 500).json({ ok: false, error: data });
+  }
+}
+
 async function sendText(to, text) {
   if (!BASE || !TOKEN || !INSTANCE) {
     console.warn("Z-API envio ignorado: BASE/TOKEN/INSTANCE ausentes");
@@ -18,7 +33,7 @@ async function sendText(to, text) {
   }
   try {
     const baseUrl = basePath();
-    const pacienteId = to;
+    const pacienteId = String(to || "").replace(/\D/g, "");
     const resposta = text;
     const url = `${baseUrl}/send-text`;
     const payload = { phone: pacienteId, message: resposta };
@@ -45,7 +60,7 @@ async function sendButtons(to, title, options = []) {
   try {
     const buttons = options.slice(0, 3).map((o) => ({ id: o.id, text: o.label }));
     const url = `${basePath()}/send-buttons`;
-    const payload = { phone: to, message: title, buttons };
+    const payload = { phone: String(to || "").replace(/\D/g, ""), message: title, buttons };
     const _t = CLIENT_TOKEN;
     const _mask = _t ? `${_t.slice(0, 4)}...${_t.slice(-4)}` : "undefined";
     console.log("TOKEN:", _mask);
@@ -65,7 +80,7 @@ async function sendList(to, title, options = []) {
   try {
     const items = options.map((o) => ({ id: o.id, title: o.label }));
     const url = `${basePath()}/send-list`;
-    const payload = { phone: to, message: title, list: { title: title, items } };
+    const payload = { phone: String(to || "").replace(/\D/g, ""), message: title, list: { title: title, items } };
     const _t = CLIENT_TOKEN;
     const _mask = _t ? `${_t.slice(0, 4)}...${_t.slice(-4)}` : "undefined";
     console.log("TOKEN:", _mask);
