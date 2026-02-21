@@ -2,9 +2,9 @@ import axios from "axios";
 import { chat } from "./chatController.js";
 
 const BASE = process.env.ZAPI_BASE_URL || "https://api.z-api.io";
-const TOKEN = process.env.ZAPI_TOKEN || "";
-const INSTANCE = process.env.ZAPI_INSTANCE || "";
-const CLIENT_TOKEN = String(process.env.ZAPI_CLIENT_TOKEN || "").trim();
+const TOKEN = process.env.ZAPI_TOKEN || "868A4C1992A2490080E923D0";
+const INSTANCE = process.env.ZAPI_INSTANCE || "3EF1645AA495E29561188E378C15AB7A";
+const CLIENT_TOKEN = String(process.env.ZAPI_CLIENT_TOKEN || "F00f849f85727453788d90de94b1c40e3S").trim();
 
 function basePath() {
   const b = BASE.replace(/\/+$/, "");
@@ -14,12 +14,15 @@ function basePath() {
 async function sendText(to, text) {
   if (!BASE || !TOKEN || !INSTANCE) return;
   try {
-    const url = `${basePath()}/send-text`;
-    const payload = { phone: to, message: text };
+    const baseUrl = basePath();
+    const pacienteId = to;
+    const resposta = text;
+    const url = `${baseUrl}/send-text`;
+    const payload = { phone: pacienteId, message: resposta };
     const _t = CLIENT_TOKEN;
     const _mask = _t ? `${_t.slice(0, 4)}...${_t.slice(-4)}` : "undefined";
     console.log("TOKEN:", _mask);
-    await axios.post(url, payload, { headers: { "Client-Token": CLIENT_TOKEN } });
+    await axios.post(url, payload, { headers: { "Client-Token": process.env.ZAPI_CLIENT_TOKEN } });
   } catch (e) {
     console.error("zapi sendText error:", e?.response?.data || e.message);
   }
