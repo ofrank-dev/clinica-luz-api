@@ -50,7 +50,7 @@ app.use("/api", routes);
 // 404 handler consistente
 app.use((req, res) => {
   res.status(404).json({
-    error: "Not Found",
+    error: "Not found",
     path: req.originalUrl,
   });
 });

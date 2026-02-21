@@ -1,10 +1,10 @@
 import axios from "axios";
 import { chat } from "./chatController.js";
 
-const BASE = process.env.ZAPI_BASE_URL || "https://api.z-api.io";
-const TOKEN = process.env.ZAPI_TOKEN || "868A4C1992A2490080E923D0";
-const INSTANCE = process.env.ZAPI_INSTANCE || "3EF1645AA495E29561188E378C15AB7A";
-const CLIENT_TOKEN = String(process.env.ZAPI_CLIENT_TOKEN || "F00f849f85727453788d90de94b1c40e3S").trim();
+const BASE = (process.env.ZAPI_BASE_URL || "https://api.z-api.io").trim();
+const TOKEN = (process.env.ZAPI_TOKEN || "").trim();
+const INSTANCE = (process.env.ZAPI_INSTANCE || "").trim();
+const CLIENT_TOKEN = String(process.env.ZAPI_CLIENT_TOKEN || "").trim();
 
 function basePath() {
   const b = BASE.replace(/\/+$/, "");
@@ -12,24 +12,36 @@ function basePath() {
 }
 
 async function sendText(to, text) {
-  if (!BASE || !TOKEN || !INSTANCE) return;
+  if (!BASE || !TOKEN || !INSTANCE) {
+    console.warn("Z-API envio ignorado: BASE/TOKEN/INSTANCE ausentes");
+    return;
+  }
   try {
     const baseUrl = basePath();
     const pacienteId = to;
     const resposta = text;
     const url = `${baseUrl}/send-text`;
     const payload = { phone: pacienteId, message: resposta };
+
     const _t = CLIENT_TOKEN;
     const _mask = _t ? `${_t.slice(0, 4)}...${_t.slice(-4)}` : "undefined";
     console.log("TOKEN:", _mask);
-    await axios.post(url, payload, { headers: { "Client-Token": process.env.ZAPI_CLIENT_TOKEN } });
+
+    const resSendText = await axios.post(url, payload, { 
+      headers: { "Client-Token": CLIENT_TOKEN, "Content-Type": "application/json" } 
+    });
+    console.log("zapi sendText ok:", resSendText?.status);
+
   } catch (e) {
     console.error("zapi sendText error:", e?.response?.data || e.message);
   }
 }
 
 async function sendButtons(to, title, options = []) {
-  if (!BASE || !TOKEN || !INSTANCE) return sendText(to, title);
+  if (!BASE || !TOKEN || !INSTANCE) {
+    console.warn("Z-API envio de botões ignorado: BASE/TOKEN/INSTANCE ausentes");
+    return sendText(to, title);
+  }
   try {
     const buttons = options.slice(0, 3).map((o) => ({ id: o.id, text: o.label }));
     const url = `${basePath()}/send-buttons`;
@@ -37,7 +49,8 @@ async function sendButtons(to, title, options = []) {
     const _t = CLIENT_TOKEN;
     const _mask = _t ? `${_t.slice(0, 4)}...${_t.slice(-4)}` : "undefined";
     console.log("TOKEN:", _mask);
-    await axios.post(url, payload, { headers: { "Client-Token": CLIENT_TOKEN } });
+    const resButtons = await axios.post(url, payload, { headers: { "Client-Token": CLIENT_TOKEN, "Content-Type": "application/json" } });
+    console.log("zapi sendButtons ok:", resButtons?.status);
   } catch (e) {
     console.error("zapi sendButtons error:", e?.response?.data || e.message);
     await sendText(to, title + " " + options.map((o) => `• ${o.label}`).join(" | "));
@@ -45,7 +58,10 @@ async function sendButtons(to, title, options = []) {
 }
 
 async function sendList(to, title, options = []) {
-  if (!BASE || !TOKEN || !INSTANCE) return sendText(to, title);
+  if (!BASE || !TOKEN || !INSTANCE) {
+    console.warn("Z-API envio de lista ignorado: BASE/TOKEN/INSTANCE ausentes");
+    return sendText(to, title);
+  }
   try {
     const items = options.map((o) => ({ id: o.id, title: o.label }));
     const url = `${basePath()}/send-list`;
@@ -53,7 +69,8 @@ async function sendList(to, title, options = []) {
     const _t = CLIENT_TOKEN;
     const _mask = _t ? `${_t.slice(0, 4)}...${_t.slice(-4)}` : "undefined";
     console.log("TOKEN:", _mask);
-    await axios.post(url, payload, { headers: { "Client-Token": CLIENT_TOKEN } });
+    const resList = await axios.post(url, payload, { headers: { "Client-Token": CLIENT_TOKEN, "Content-Type": "application/json" } });
+    console.log("zapi sendList ok:", resList?.status);
   } catch (e) {
     console.error("zapi sendList error:", e?.response?.data || e.message);
     await sendButtons(to, title, options.slice(0, 3));
@@ -111,7 +128,17 @@ function mapSelectionToParams(id) {
 }
 
 export async function zapiHealth(req, res) {
-  res.json({ status: "ok", provider: "zapi" });
+  const debug = String(req.query?.debug || "").toLowerCase() === "1";
+  const out = { status: "ok", provider: "zapi" };
+  if (debug) {
+    out.config = {
+      base: !!BASE,
+      instance: !!INSTANCE,
+      token: !!TOKEN,
+      clientToken: !!CLIENT_TOKEN,
+    };
+  }
+  res.json(out);
 }
 
 export async function zapiWebhook(req, res) {

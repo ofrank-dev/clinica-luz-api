@@ -3,7 +3,7 @@ import { zapiHealth, zapiWebhook } from "../controllers/zapiController.js";
 
 const router = Router();
 
-router.get("/health", zapiHealth);
-router.post("/webhook", zapiWebhook);
+router.get("/zapi/health", zapiHealth);
+router.post("/zapi/webhook", zapiWebhook);
 
 export default router;
