@@ -128,7 +128,8 @@ function mapSelectionToParams(id) {
   if (id === "atendente") return { extra: {}, hint: "ATENDENTE" };
   if (id === "atualizar_nome") return { extra: {}, hint: "ATUALIZAR_NOME" };
   if (id.startsWith("esp_")) return { extra: { especialidade: id.slice(4) }, hint: "LISTAR_MEDICOS" };
-  if (id.startsWith("med_")) return { extra: { medico_id: Number(id.slice(4)) }, hint: "LISTAR_HORARIOS" };
+  if (id.startsWith("med_")) return { extra: { medico_id: Number(id.slice(4)) }, hint: "LISTAR_DIAS" };
+  if (id.startsWith("day_")) return { extra: { data: id.slice(4) }, hint: "LISTAR_HORAS_DIA" };
   if (id.startsWith("disp_")) return { extra: { disponibilidade_id: Number(id.slice(5)) }, hint: "CRIAR_AGENDAMENTO" };
   return { extra: {}, hint: null };
 }

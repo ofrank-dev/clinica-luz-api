@@ -12,6 +12,16 @@ export const chat = async (req, res) => {
     const s = String(t || "");
     return /^\d{2}:\d{2}:\d{2}$/.test(s) ? s.slice(0, 5) : s;
   };
+  const weekDayBR = (d) => {
+    const [yyyy, mm, dd] = String(d).split("-");
+    const dt = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+    const names = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+    return names[dt.getDay()];
+  };
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const now = new Date();
+  const todayYMD = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  const nowHMS = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:00`;
   const espVariants = (esp) => {
     const base = String(esp || "");
     const noAcc = base.normalize("NFD").replace(/\p{Diacritic}/gu, "");
@@ -66,7 +76,7 @@ const rawMensagem = mensagemRaw;
   const pacienteNome = paciente_nome || "Visitante";
 
   if (structured) {
-    const { especialidade, medico_id, disponibilidade_id, hint, novo_nome } = req.body || {};
+    const { especialidade, medico_id, disponibilidade_id, hint, novo_nome, data } = req.body || {};
     if (hint === "LISTAR_ESPECIALIDADES") {
       const especs = ["Proctologia", "Dermatologia", "Clinico geral", "Nutrição", "Urologia", "Ginecologia"];
       const opts = especs.map((e) => ({ id: `esp_${e}`, label: e, next_action: "LISTAR_MEDICOS", params: { especialidade: e } }));
@@ -182,26 +192,62 @@ const rawMensagem = mensagemRaw;
           `✅ CLÍNICA LUZ\n\nConsulta agendada em ${formatBRDate(dispUpd.data)} às ${formatTime(dispUpd.horario)}.\n\nObrigado por escolher a CLÍNICA LUZ!\nCuidar da sua saúde é a nossa prioridade.`
         );
       }
+      if (medico_id && data) {
+        // Listar horas do dia escolhido (filtra horas passadas se for hoje)
+        let qHoras = supabase
+          .from("disponibilidades")
+          .select("*")
+          .eq("medico_id", medico_id)
+          .eq("data", data)
+          .eq("disponivel", true)
+          .order("horario", { ascending: true });
+        if (data === todayYMD) {
+          qHoras = qHoras.gte("horario", nowHMS);
+        }
+        const { data: horasDia, error: eHoras } = await qHoras;
+        if (eHoras) return res.status(500).json({ error: eHoras.message });
+        if (!horasDia || horasDia.length === 0) {
+          return send("LISTAR_HORARIOS", { medico_id, data }, "⏰ Não há horários disponíveis para este dia.");
+        }
+        const optsH = horasDia.slice(0, 10).map((h) => ({
+          id: `disp_${h.id}`,
+          label: `${formatTime(h.horario)}`,
+          next_action: "CRIAR_AGENDAMENTO",
+          params: { disponibilidade_id: h.id, medico_id },
+        }));
+        return send("LISTAR_HORARIOS", { medico_id, data }, `⏰ CLÍNICA LUZ\n\nHorários em ${weekDayBR(data)} • ${formatBRDate(data)}:`, optsH);
+      }
       if (medico_id) {
+        // Listar apenas dias futuros, ou hoje com horas futuras
+        const orCond = `data.gt.${todayYMD},and(data.eq.${todayYMD},horario.gte.${nowHMS})`;
         const { data: horarios, error: eHor } = await supabase
           .from("disponibilidades")
           .select("*")
           .eq("medico_id", medico_id)
           .eq("disponivel", true)
+          .or(orCond)
           .order("data", { ascending: true })
           .order("horario", { ascending: true });
         if (eHor) return res.status(500).json({ error: eHor.message });
         if (!horarios || horarios.length === 0) {
-          return send("LISTAR_HORARIOS", { medico_id }, "⏰ Não há horários disponíveis no momento.");
+          return send("LISTAR_DIAS", { medico_id }, "📅 Não há dias disponíveis.");
         }
-        const top = horarios.slice(0, 10);
-        const opts = top.map((h) => ({
-          id: `disp_${h.id}`,
-          label: `${formatBRDate(h.data)} ${formatTime(h.horario)}`,
-          next_action: "CRIAR_AGENDAMENTO",
-          params: { disponibilidade_id: h.id, medico_id },
+        const seen = new Set();
+        const dias = [];
+        for (const h of horarios) {
+          if (!seen.has(h.data)) {
+            seen.add(h.data);
+            dias.push(h.data);
+            if (dias.length >= 10) break;
+          }
+        }
+        const optsD = dias.map((d) => ({
+          id: `day_${d}`,
+          label: `${weekDayBR(d)} • ${formatBRDate(d)}`,
+          next_action: "LISTAR_HORAS_DIA",
+          params: { medico_id, data: d },
         }));
-        return send("LISTAR_HORARIOS", { medico_id }, "⏰ CLÍNICA LUZ\n\nHorários disponíveis (até 10 opções):", opts);
+        return send("LISTAR_DIAS", { medico_id }, "📅 CLÍNICA LUZ\n\nEscolha o dia:", optsD);
       }
       if (especialidade) {
         const esp = String(especialidade);
@@ -605,11 +651,13 @@ const rawMensagem = mensagemRaw;
     }
   }
   if (medicoEscolhido) {
+    const orCond = `data.gt.${todayYMD},and(data.eq.${todayYMD},horario.gte.${nowHMS})`;
     const { data: horarios, error } = await supabase
       .from("disponibilidades")
       .select("*")
       .eq("medico_id", medicoEscolhido.id)
       .eq("disponivel", true)
+      .or(orCond)
       .order("data", { ascending: true })
       .order("horario", { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
