@@ -93,8 +93,6 @@ async function sendList(to, title, options = []) {
 }
 
 function pickNextType(options = []) {
-  const force = String(process.env.ZAPI_FORCE_TEXT || "").trim() === "1";
-  if (force) return "text";
   if (!options || !options.length) return "text";
   return options.length <= 3 ? "buttons" : "list";
 }
