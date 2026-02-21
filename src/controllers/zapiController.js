@@ -1,9 +1,10 @@
 import axios from "axios";
 import { chat } from "./chatController.js";
 
-const BASE = process.env.ZAPI_BASE_URL || "https://api.z-api.io";
-const TOKEN = process.env.ZAPI_TOKEN || "868A4C1992A2490080E923D0";
-const INSTANCE = process.env.ZAPI_INSTANCE || "3EF1645AA495E29561188E378C15AB7A";
+const BASE = process.env.ZAPI_BASE_URL || "";
+const TOKEN = process.env.ZAPI_TOKEN || "";
+const INSTANCE = process.env.ZAPI_INSTANCE || "";
+const CLIENT_TOKEN = process.env.ZAPI_CLIENT_TOKEN || "";
 
 function basePath() {
   const b = BASE.replace(/\/+$/, "");
@@ -13,7 +14,10 @@ function basePath() {
 async function sendText(to, text) {
   if (!BASE || !TOKEN || !INSTANCE) return;
   try {
-    await axios.post(`${basePath()}/send-text`, { phone: to, message: text }, { headers: { "Content-Type": "application/json" } });
+    const url = `${basePath()}/send-text`;
+    const payload = { phone: to, message: text };
+    console.log("TOKEN:", process.env.ZAPI_CLIENT_TOKEN);
+    await axios.post(url, payload, { headers: { "Client-Token": String(process.env.ZAPI_CLIENT_TOKEN).trim() } });
   } catch (e) {
     console.error("zapi sendText error:", e?.response?.data || e.message);
   }
@@ -23,7 +27,10 @@ async function sendButtons(to, title, options = []) {
   if (!BASE || !TOKEN || !INSTANCE) return sendText(to, title);
   try {
     const buttons = options.slice(0, 3).map((o) => ({ id: o.id, text: o.label }));
-    await axios.post(`${basePath()}/send-buttons`, { phone: to, message: title, buttons }, { headers: { "Content-Type": "application/json" } });
+    const url = `${basePath()}/send-buttons`;
+    const payload = { phone: to, message: title, buttons };
+    console.log("TOKEN:", process.env.ZAPI_CLIENT_TOKEN);
+    await axios.post(url, payload, { headers: { "Client-Token": String(process.env.ZAPI_CLIENT_TOKEN).trim() } });
   } catch (e) {
     console.error("zapi sendButtons error:", e?.response?.data || e.message);
     await sendText(to, title + " " + options.map((o) => `• ${o.label}`).join(" | "));
@@ -34,7 +41,10 @@ async function sendList(to, title, options = []) {
   if (!BASE || !TOKEN || !INSTANCE) return sendText(to, title);
   try {
     const items = options.map((o) => ({ id: o.id, title: o.label }));
-    await axios.post(`${basePath()}/send-list`, { phone: to, message: title, list: { title: title, items } }, { headers: { "Content-Type": "application/json" } });
+    const url = `${basePath()}/send-list`;
+    const payload = { phone: to, message: title, list: { title: title, items } };
+    console.log("TOKEN:", process.env.ZAPI_CLIENT_TOKEN);
+    await axios.post(url, payload, { headers: { "Client-Token": String(process.env.ZAPI_CLIENT_TOKEN).trim() } });
   } catch (e) {
     console.error("zapi sendList error:", e?.response?.data || e.message);
     await sendButtons(to, title, options.slice(0, 3));
@@ -57,8 +67,27 @@ async function invokeChatStructured({ mensagem, paciente_nome, extra = {} }) {
 function parseInbound(body = {}) {
   const data = body.data || body;
   const from = data?.from || data?.phone || body?.from || body?.phone || data?.contact || null;
-  const buttonId = data?.buttonId || data?.button?.id || data?.selectedId || data?.interactive?.button_reply?.id || data?.list?.id || null;
-  const text = data?.text || data?.message || data?.body || body?.text || "";
+  const buttonId =
+    data?.buttonId ||
+    data?.button?.id ||
+    data?.selectedId ||
+    data?.interactive?.button_reply?.id ||
+    data?.list?.id ||
+    null;
+  let text =
+    data?.text?.message ||
+    data?.text ||
+    data?.message?.text ||
+    data?.message ||
+    data?.body ||
+    body?.text ||
+    body?.message ||
+    body?.body ||
+    "";
+  if (typeof text === "object") {
+    text = text?.message || text?.body || "";
+  }
+  text = typeof text === "string" ? text : String(text || "");
   return { from, buttonId, text };
 }
 
@@ -98,4 +127,3 @@ export async function zapiWebhook(req, res) {
     return res.status(500).json({ error: "internal_error" });
   }
 }
-
