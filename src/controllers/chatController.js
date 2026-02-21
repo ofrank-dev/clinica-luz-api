@@ -3,6 +3,15 @@ const sessoes = {};
 
 export const chat = async (req, res) => {
   console.log("BODY ZAPI:", JSON.stringify(req.body, null, 2));
+  const formatBRDate = (d) => {
+    const s = String(d || "");
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[3]}/${m[2]}/${m[1]}` : s;
+  };
+  const formatTime = (t) => {
+    const s = String(t || "");
+    return /^\d{2}:\d{2}:\d{2}$/.test(s) ? s.slice(0, 5) : s;
+  };
   const { paciente_nome } = req.body || {};
   const telefone = req.body?.phone || req.body?.paciente_telefone || null;
   // 🔥 Tratamento robusto da mensagem da Z-API
@@ -50,10 +59,10 @@ const rawMensagem = mensagemRaw;
     if (hint === "LISTAR_ESPECIALIDADES") {
       const especs = ["Proctologia", "Dermatologia", "Clinico geral", "Nutrição", "Urologia", "Ginecologia"];
       const opts = especs.map((e) => ({ id: `esp_${e}`, label: e, next_action: "LISTAR_MEDICOS", params: { especialidade: e } }));
-      return send("LISTAR_ESPECIALIDADES", {}, "📋 CLÍNICA LUZ\nEscolha a especialidade:", opts);
+      return send("LISTAR_ESPECIALIDADES", {}, "📋 CLÍNICA LUZ\n\nEscolha a especialidade:", opts);
     }
     if (hint === "ATENDENTE") {
-      return send("ATENDENTE", {}, "👩‍💼 CLÍNICA LUZ\nEncaminhei para o atendente. Aguarde um momento.");
+      return send("ATENDENTE", {}, "👩‍💼 CLÍNICA LUZ\n\nEncaminhei para o atendente. Aguarde um momento.");
     }
     try {
       if (disponibilidade_id) {
@@ -126,7 +135,7 @@ const rawMensagem = mensagemRaw;
             paciente_telefone: pacienteTelefone || undefined,
             agendamento_id: novoAg?.id,
           },
-          `✅ CLÍNICA LUZ\nConsulta agendada em ${dispUpd.data} às ${dispUpd.horario}.`
+          `✅ CLÍNICA LUZ\n\nConsulta agendada em ${formatBRDate(dispUpd.data)} às ${formatTime(dispUpd.horario)}.\n\nObrigado por escolher a CLÍNICA LUZ!\nCuidar da sua saúde é a nossa prioridade.`
         );
       }
       if (medico_id) {
@@ -144,11 +153,11 @@ const rawMensagem = mensagemRaw;
         const top = horarios.slice(0, 10);
         const opts = top.map((h) => ({
           id: `disp_${h.id}`,
-          label: `${h.data} ${h.horario}`,
+          label: `${formatBRDate(h.data)} ${formatTime(h.horario)}`,
           next_action: "CRIAR_AGENDAMENTO",
           params: { disponibilidade_id: h.id, medico_id },
         }));
-        return send("LISTAR_HORARIOS", { medico_id }, "⏰ CLÍNICA LUZ\nHorários disponíveis (até 10 opções):", opts);
+        return send("LISTAR_HORARIOS", { medico_id }, "⏰ CLÍNICA LUZ\n\nHorários disponíveis (até 10 opções):", opts);
       }
       if (especialidade) {
         const esp = String(especialidade);
@@ -170,7 +179,7 @@ const rawMensagem = mensagemRaw;
           next_action: "LISTAR_HORARIOS",
           params: { medico_id: m.id, medico_nome: m.nome },
         }));
-        return send("LISTAR_MEDICOS", { especialidade: esp }, `👩‍⚕️ CLÍNICA LUZ\nMédicos em ${esp}:`, opts);
+        return send("LISTAR_MEDICOS", { especialidade: esp }, `👩‍⚕️ CLÍNICA LUZ\n\nMédicos em ${esp}:`, opts);
       }
     } catch (e) {
       // prossegue com a lógica padrão caso algo falhe
@@ -238,10 +247,10 @@ const rawMensagem = mensagemRaw;
         { id: "ver_medicos", label: "Ver médicos", next_action: "LISTAR_ESPECIALIDADES" },
         { id: "atendente", label: "Falar com atendente", next_action: "ATENDENTE" },
       ];
-      return send("SAUDACAO", {}, "👋 CLÍNICA LUZ\nComo posso ajudar?", opts);
+      return send("SAUDACAO", {}, "👋 CLÍNICA LUZ\n\nComo posso ajudar?", opts);
     } else {
       sessao.etapa = "aguardando_nome";
-      return send("SAUDACAO", {}, "👋 CLÍNICA LUZ\nQual é o seu nome completo?");
+      return send("SAUDACAO", {}, "👋 CLÍNICA LUZ\n\nQual é o seu nome completo?");
     }
   }
   if (sessao.etapa === "aguardando_nome") {
@@ -374,7 +383,7 @@ const rawMensagem = mensagemRaw;
         hora,
         paciente_nome: sessao.nome || pacienteNome,
       },
-      `Consulta agendada em ${data} às ${hora}.`
+      `✅ CLÍNICA LUZ\n\nConsulta agendada em ${formatBRDate(data)} às ${formatTime(hora)}.\n\nObrigado por escolher a CLÍNICA LUZ!\nCuidar da sua saúde é a nossa prioridade.`
     );
   }
 
@@ -546,7 +555,7 @@ const rawMensagem = mensagemRaw;
           hora,
           paciente_nome: pacienteNome,
         },
-        `Consulta agendada com ${medicoParaAgendar.nome} em ${data} às ${hora}`
+        `✅ CLÍNICA LUZ\n\nConsulta agendada com ${medicoParaAgendar.nome} em ${formatBRDate(data)} às ${formatTime(hora)}.\n\nObrigado por escolher a CLÍNICA LUZ!\nCuidar da sua saúde é a nossa prioridade.`
       );
     }
   }
@@ -568,11 +577,11 @@ const rawMensagem = mensagemRaw;
     const top = horarios.slice(0, 10);
     const opts = top.map((h) => ({
       id: `disp_${h.id}`,
-      label: `${h.data} ${h.horario}`,
+      label: `${formatBRDate(h.data)} ${formatTime(h.horario)}`,
       next_action: "CRIAR_AGENDAMENTO",
       params: { disponibilidade_id: h.id, medico_id: medicoEscolhido.id, data: h.data, hora: h.horario },
     }));
-    return send("LISTAR_HORARIOS", { medico_id: medicoEscolhido.id }, `⏰ CLÍNICA LUZ\nHorários para ${medicoEscolhido.nome} (até 10):`, opts);
+    return send("LISTAR_HORARIOS", { medico_id: medicoEscolhido.id }, `⏰ CLÍNICA LUZ\n\nHorários para ${medicoEscolhido.nome} (até 10):`, opts);
   }
 
   // removido: fluxo duplicado de agendamento

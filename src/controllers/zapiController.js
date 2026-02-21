@@ -55,7 +55,13 @@ async function sendText(to, text) {
 }
 
 function buildMenuText(title, options = []) {
-  const lines = [title, ...options.map((o, i) => `${i + 1}. ${o.label}`), "Responda com o número da opção."];
+  const lines = [
+    title,
+    "",
+    ...options.map((o, i) => `${i + 1}. ${o.label}`),
+    "",
+    "Responda com o número da opção.",
+  ];
   return lines.join("\n");
 }
 
