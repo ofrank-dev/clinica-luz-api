@@ -77,9 +77,11 @@ function pickNextType(options = []) {
   return "text";
 }
 
-async function invokeChatStructured({ mensagem, paciente_nome, extra = {} }) {
+async function invokeChatStructured({ mensagem, paciente_nome, extra = {}, hint = null }) {
   return new Promise((resolve, reject) => {
-    const fakeReq = { body: { mensagem, paciente_nome, ...extra }, query: { format: "structured" }, headers: { "x-chat-format": "structured" } };
+    const body = { mensagem, paciente_nome, ...extra };
+    if (hint) body.hint = hint;
+    const fakeReq = { body, query: { format: "structured" }, headers: { "x-chat-format": "structured" } };
     const fakeRes = { json: (data) => resolve(data), status: () => fakeRes };
     Promise.resolve(chat(fakeReq, fakeRes)).catch(reject);
   });
@@ -142,6 +144,7 @@ export async function zapiWebhook(req, res) {
     if (!from) return res.status(400).json({ error: "Missing sender (from)" });
     const fromKey = String(from || "").replace(/\D/g, "");
     let extra = {};
+    let hint = null;
     let mappedButtonId = buttonId || null;
     const tnum = String(text || "").trim();
     if (!mappedButtonId) {
@@ -158,11 +161,11 @@ export async function zapiWebhook(req, res) {
         else if (tnum === "3") mappedButtonId = "atendente";
       }
     }
-    if (mappedButtonId) ({ extra } = mapSelectionToParams(mappedButtonId));
+    if (mappedButtonId) ({ extra, hint } = mapSelectionToParams(mappedButtonId));
     const paciente_nome = `WhatsApp:${from}`;
     const paciente_telefone = from;
     const mensagem = mappedButtonId ? "menu" : (text || "oi");
-    const result = await invokeChatStructured({ mensagem, paciente_nome, extra: { ...extra, paciente_telefone } });
+    const result = await invokeChatStructured({ mensagem, paciente_nome, extra: { ...extra, paciente_telefone }, hint });
     const reply = result?.reply || "Pronto.";
     const options = Array.isArray(result?.options) ? result.options : [];
     const type = pickNextType(options);

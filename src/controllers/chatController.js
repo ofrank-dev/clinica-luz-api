@@ -46,7 +46,15 @@ const rawMensagem = mensagemRaw;
   const pacienteNome = paciente_nome || "Visitante";
 
   if (structured) {
-    const { especialidade, medico_id, disponibilidade_id } = req.body || {};
+    const { especialidade, medico_id, disponibilidade_id, hint } = req.body || {};
+    if (hint === "LISTAR_ESPECIALIDADES") {
+      const especs = ["Proctologia", "Dermatologia", "Clinico geral", "Nutrição", "Urologia", "Ginecologia"];
+      const opts = especs.map((e) => ({ id: `esp_${e}`, label: e, next_action: "LISTAR_MEDICOS", params: { especialidade: e } }));
+      return send("LISTAR_ESPECIALIDADES", {}, "Qual especialidade você deseja?", opts);
+    }
+    if (hint === "ATENDENTE") {
+      return send("ATENDENTE", {}, "Encaminhei para o atendente. Aguarde um momento.");
+    }
     try {
       if (disponibilidade_id) {
         const { data: disp, error: eDisp } = await supabase
