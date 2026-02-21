@@ -12,6 +12,20 @@ export const chat = async (req, res) => {
     const s = String(t || "");
     return /^\d{2}:\d{2}:\d{2}$/.test(s) ? s.slice(0, 5) : s;
   };
+  const norm = (s) =>
+    String(s || "")
+      .normalize("NFD")
+      .replace(/\p{Diacritic}/gu, "")
+      .toLowerCase()
+      .trim();
+  const matchEspecialidadeExata = (medEsp, alvo) => {
+    const alvoN = norm(alvo);
+    const tokens = String(medEsp || "")
+      .split(/[,/|-]/)
+      .map((t) => norm(t))
+      .filter(Boolean);
+    return tokens.includes(alvoN);
+  };
   const weekDayBR = (d) => {
     const [yyyy, mm, dd] = String(d).split("-");
     const dt = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
@@ -265,10 +279,13 @@ const rawMensagem = mensagemRaw;
           .or(orFilter)
           .eq("ativo", true);
         if (eMed) return res.status(500).json({ error: eMed.message });
-        if (!medicos || medicos.length === 0) {
+        const medicosFiltrados = (medicos || []).filter((m) =>
+          matchEspecialidadeExata(m.especialidade, esp)
+        );
+        if (!medicosFiltrados || medicosFiltrados.length === 0) {
           return send("LISTAR_MEDICOS", { especialidade: esp }, `👩‍⚕️ Não há médicos disponíveis para ${esp}.`);
         }
-        const top = medicos.slice(0, 10);
+        const top = medicosFiltrados.slice(0, 10);
         const opts = top.map((m) => ({
           id: `med_${m.id}`,
           label: m.nome,
@@ -524,9 +541,16 @@ const rawMensagem = mensagemRaw;
           `Não há médicos disponíveis para ${esp}`
         );
 
-      // Resposta com lista de médicos
-      const listaMedicos = medicos.map((m) => `${m.nome}`).join(", ");
-      const opts = medicos.slice(0, 10).map((m) => ({
+      // Resposta com lista de médicos (filtragem exata da especialidade)
+      const medFiltrados = medicos.filter((m) => matchEspecialidadeExata(m.especialidade, esp));
+      if (medFiltrados.length === 0)
+        return send(
+          "LISTAR_MEDICOS",
+          { especialidade: esp },
+          `Não há médicos disponíveis para ${esp}`
+        );
+      const listaMedicos = medFiltrados.map((m) => `${m.nome}`).join(", ");
+      const opts = medFiltrados.slice(0, 10).map((m) => ({
         id: `med_${m.id}`,
         label: m.nome,
         next_action: "LISTAR_HORARIOS",
