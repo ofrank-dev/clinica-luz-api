@@ -3,7 +3,6 @@ import medicosRoutes from "./medicosRoutes.js";
 import agendamentosRoutes from "./agendamentosRoutes.js";
 import { listarDisponibilidades } from "../controllers/disponibilidadeController.js";
 import chatRoutes from "./chatRoutes.js";
-import evolutionRoutes from "./evolutionRoutes.js";
 import zapiRoutes from "./zapiRoutes.js";
 
 const router = Router();
@@ -36,7 +35,6 @@ router.post("/webhook-test", (req, res) => {
   res.sendStatus(200);
 });
 
-router.use("/evolution", evolutionRoutes);
 router.use("/zapi", zapiRoutes);
 
 export default router;
