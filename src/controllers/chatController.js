@@ -12,6 +12,17 @@ export const chat = async (req, res) => {
     const s = String(t || "");
     return /^\d{2}:\d{2}:\d{2}$/.test(s) ? s.slice(0, 5) : s;
   };
+  const espVariants = (esp) => {
+    const base = String(esp || "");
+    const noAcc = base.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+    const title = base
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+    const acc = noAcc.replace(/Clinico/gi, "Clínico").replace(/Geral/gi, "Geral");
+    const accTitle = title.normalize("NFD").replace(/\p{Diacritic}/gu, "").replace(/Clinico/gi, "Clínico");
+    const set = new Set([base, noAcc, title, acc, accTitle, "Clínico geral", "Clinico geral", "Clínico Geral", "Clinico Geral"]);
+    return Array.from(set);
+  };
   const { paciente_nome } = req.body || {};
   const telefone = req.body?.phone || req.body?.paciente_telefone || null;
   // 🔥 Tratamento robusto da mensagem da Z-API
@@ -161,8 +172,8 @@ const rawMensagem = mensagemRaw;
       }
       if (especialidade) {
         const esp = String(especialidade);
-        const espNoAcc = esp.normalize("NFD").replace(/\p{Diacritic}/gu, "");
-        const orFilter = `especialidade.ilike.%${esp}%,especialidade.ilike.%${espNoAcc}%`;
+        const vars = espVariants(esp).map((v) => `especialidade.ilike.%${v}%`).join(",");
+        const orFilter = vars;
         const { data: medicos, error: eMed } = await supabase
           .from("medicos")
           .select("*")
@@ -410,8 +421,8 @@ const rawMensagem = mensagemRaw;
   for (let esp of especialidades) {
     const espNorm = normalize(esp);
     if (texto.includes(espNorm)) {
-      const espNoAcc = esp.normalize("NFD").replace(/\p{Diacritic}/gu, "");
-      const orFilter = `especialidade.ilike.%${esp}%,especialidade.ilike.%${espNoAcc}%`;
+      const vars = espVariants(esp).map((v) => `especialidade.ilike.%${v}%`).join(",");
+      const orFilter = vars;
       const { data: medicos, error } = await supabase
         .from("medicos")
         .select("*")
