@@ -50,23 +50,25 @@ const rawMensagem = mensagemRaw;
     if (hint === "LISTAR_ESPECIALIDADES") {
       const especs = ["Proctologia", "Dermatologia", "Clinico geral", "Nutrição", "Urologia", "Ginecologia"];
       const opts = especs.map((e) => ({ id: `esp_${e}`, label: e, next_action: "LISTAR_MEDICOS", params: { especialidade: e } }));
-      return send("LISTAR_ESPECIALIDADES", {}, "Qual especialidade você deseja?", opts);
+      return send("LISTAR_ESPECIALIDADES", {}, "📋 CLÍNICA LUZ\nEscolha a especialidade:", opts);
     }
     if (hint === "ATENDENTE") {
-      return send("ATENDENTE", {}, "Encaminhei para o atendente. Aguarde um momento.");
+      return send("ATENDENTE", {}, "👩‍💼 CLÍNICA LUZ\nEncaminhei para o atendente. Aguarde um momento.");
     }
     try {
       if (disponibilidade_id) {
-        const { data: disp, error: eDisp } = await supabase
+        // Tenta reservar o horário primeiro (evita duplicidade em concorrência)
+        const { data: dispUpd, error: eUpd } = await supabase
           .from("disponibilidades")
-          .select("*")
+          .update({ disponivel: false })
           .eq("id", disponibilidade_id)
           .eq("disponivel", true)
+          .select("*")
           .single();
-        if (eDisp || !disp) {
-          return send("LISTAR_HORARIOS", { medico_id }, "Horário indisponível. Escolha outro.");
+        if (eUpd || !dispUpd) {
+          return send("LISTAR_HORARIOS", { medico_id }, "⛔ Horário indisponível. Escolha outro.");
         }
-        const mid = medico_id || disp.medico_id;
+        const mid = medico_id || dispUpd.medico_id;
         let pId = null;
         try {
           if (pacienteTelefone) {
@@ -103,7 +105,7 @@ const rawMensagem = mensagemRaw;
         } catch {}
         const payload = {
           medico_id: mid,
-          disponibilidade_id: disp.id,
+          disponibilidade_id: dispUpd.id,
           status: "agendado",
         };
         if (pId) payload.paciente_id = pId;
@@ -113,19 +115,18 @@ const rawMensagem = mensagemRaw;
           .select()
           .single();
         if (eAg) return res.status(500).json({ error: eAg.message });
-        await supabase.from("disponibilidades").update({ disponivel: false }).eq("id", disp.id);
         return send(
           "CRIAR_AGENDAMENTO",
           {
             medico_id: mid,
-            disponibilidade_id: disp.id,
-            data: disp.data,
-            hora: disp.horario,
+            disponibilidade_id: dispUpd.id,
+            data: dispUpd.data,
+            hora: dispUpd.horario,
             paciente_nome: pacienteNome,
             paciente_telefone: pacienteTelefone || undefined,
             agendamento_id: novoAg?.id,
           },
-          `Consulta agendada em ${disp.data} às ${disp.horario}.`
+          `✅ CLÍNICA LUZ\nConsulta agendada em ${dispUpd.data} às ${dispUpd.horario}.`
         );
       }
       if (medico_id) {
@@ -138,16 +139,16 @@ const rawMensagem = mensagemRaw;
           .order("horario", { ascending: true });
         if (eHor) return res.status(500).json({ error: eHor.message });
         if (!horarios || horarios.length === 0) {
-          return send("LISTAR_HORARIOS", { medico_id }, "Não há horários disponíveis.");
+          return send("LISTAR_HORARIOS", { medico_id }, "⏰ Não há horários disponíveis no momento.");
         }
-        const opts = horarios.slice(0, 10).map((h) => ({
+        const top = horarios.slice(0, 10);
+        const opts = top.map((h) => ({
           id: `disp_${h.id}`,
           label: `${h.data} ${h.horario}`,
           next_action: "CRIAR_AGENDAMENTO",
           params: { disponibilidade_id: h.id, medico_id },
         }));
-        const lista = horarios.map((h) => `${h.data} às ${h.horario}`).join(", ");
-        return send("LISTAR_HORARIOS", { medico_id }, `Horários disponíveis: ${lista}`, opts);
+        return send("LISTAR_HORARIOS", { medico_id }, "⏰ CLÍNICA LUZ\nHorários disponíveis (até 10 opções):", opts);
       }
       if (especialidade) {
         const esp = String(especialidade);
@@ -160,16 +161,16 @@ const rawMensagem = mensagemRaw;
           .eq("ativo", true);
         if (eMed) return res.status(500).json({ error: eMed.message });
         if (!medicos || medicos.length === 0) {
-          return send("LISTAR_MEDICOS", { especialidade: esp }, `Não há médicos disponíveis para ${esp}`);
+          return send("LISTAR_MEDICOS", { especialidade: esp }, `👩‍⚕️ Não há médicos disponíveis para ${esp}.`);
         }
-        const opts = medicos.slice(0, 10).map((m) => ({
+        const top = medicos.slice(0, 10);
+        const opts = top.map((m) => ({
           id: `med_${m.id}`,
           label: m.nome,
           next_action: "LISTAR_HORARIOS",
           params: { medico_id: m.id, medico_nome: m.nome },
         }));
-        const lista = medicos.map((m) => `${m.nome}`).join(", ");
-        return send("LISTAR_MEDICOS", { especialidade: esp }, `Médicos disponíveis em ${esp}: ${lista}`, opts);
+        return send("LISTAR_MEDICOS", { especialidade: esp }, `👩‍⚕️ CLÍNICA LUZ\nMédicos em ${esp}:`, opts);
       }
     } catch (e) {
       // prossegue com a lógica padrão caso algo falhe
@@ -237,10 +238,10 @@ const rawMensagem = mensagemRaw;
         { id: "ver_medicos", label: "Ver médicos", next_action: "LISTAR_ESPECIALIDADES" },
         { id: "atendente", label: "Falar com atendente", next_action: "ATENDENTE" },
       ];
-      return send("SAUDACAO", {}, "Posso te ajudar com seu agendamento?", opts);
+      return send("SAUDACAO", {}, "👋 CLÍNICA LUZ\nComo posso ajudar?", opts);
     } else {
       sessao.etapa = "aguardando_nome";
-      return send("SAUDACAO", {}, "Qual é o seu nome completo?");
+      return send("SAUDACAO", {}, "👋 CLÍNICA LUZ\nQual é o seu nome completo?");
     }
   }
   if (sessao.etapa === "aguardando_nome") {
@@ -564,14 +565,14 @@ const rawMensagem = mensagemRaw;
         { medico_id: medicoEscolhido.id },
         `Não há horários disponíveis para ${medicoEscolhido.nome}`
       );
-    const listaHorarios = horarios.map((h) => `${h.data} às ${h.horario}`).join(", ");
-    const opts = horarios.slice(0, 10).map((h) => ({
+    const top = horarios.slice(0, 10);
+    const opts = top.map((h) => ({
       id: `disp_${h.id}`,
       label: `${h.data} ${h.horario}`,
       next_action: "CRIAR_AGENDAMENTO",
       params: { disponibilidade_id: h.id, medico_id: medicoEscolhido.id, data: h.data, hora: h.horario },
     }));
-    return send("LISTAR_HORARIOS", { medico_id: medicoEscolhido.id }, `Horários disponíveis para ${medicoEscolhido.nome}: ${listaHorarios}`, opts);
+    return send("LISTAR_HORARIOS", { medico_id: medicoEscolhido.id }, `⏰ CLÍNICA LUZ\nHorários para ${medicoEscolhido.nome} (até 10):`, opts);
   }
 
   // removido: fluxo duplicado de agendamento
