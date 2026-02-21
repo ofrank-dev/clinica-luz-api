@@ -1,5 +1,6 @@
 import axios from "axios";
 import { chat } from "./chatController.js";
+import supabase from "../database/supabase.js";
 
 const BASE = (process.env.ZAPI_BASE_URL || "https://api.z-api.io").trim();
 const TOKEN = (process.env.ZAPI_TOKEN || "").trim();
@@ -7,6 +8,7 @@ const INSTANCE = (process.env.ZAPI_INSTANCE || "").trim();
 const CLIENT_TOKEN = String(process.env.ZAPI_CLIENT_TOKEN || "").trim();
 
 const optionMemory = new Map();
+const nameAwait = new Map();
 
 function basePath() {
   const b = BASE.replace(/\/+$/, "");
@@ -124,6 +126,7 @@ function mapSelectionToParams(id) {
   if (!id) return { extra: {}, hint: null };
   if (id === "marcar_consulta" || id === "ver_medicos") return { extra: {}, hint: "LISTAR_ESPECIALIDADES" };
   if (id === "atendente") return { extra: {}, hint: "ATENDENTE" };
+  if (id === "atualizar_nome") return { extra: {}, hint: "ATUALIZAR_NOME" };
   if (id.startsWith("esp_")) return { extra: { especialidade: id.slice(4) }, hint: "LISTAR_MEDICOS" };
   if (id.startsWith("med_")) return { extra: { medico_id: Number(id.slice(4)) }, hint: "LISTAR_HORARIOS" };
   if (id.startsWith("disp_")) return { extra: { disponibilidade_id: Number(id.slice(5)) }, hint: "CRIAR_AGENDAMENTO" };
@@ -152,10 +155,17 @@ export async function zapiWebhook(req, res) {
     let extra = {};
     let hint = null;
     let mappedButtonId = buttonId || null;
-    const tnum = String(text || "").trim();
+    const tmsg = String(text || "").trim();
+    const tnum = tmsg;
+    // Captura do nome quando aguardando
+    if (nameAwait.get(fromKey) && tmsg) {
+      hint = "SALVAR_NOME";
+      extra = { novo_nome: tmsg };
+      nameAwait.delete(fromKey);
+    }
     if (!mappedButtonId) {
       const state = optionMemory.get(fromKey);
-      if (state?.options && /^\d+$/.test(tnum)) {
+      if (!hint && state?.options && /^\d+$/.test(tnum)) {
         const idx = Number(tnum) - 1;
         const chosen = state.options[idx];
         if (chosen) {
@@ -165,15 +175,18 @@ export async function zapiWebhook(req, res) {
         }
       }
       if (!mappedButtonId) {
-        if (tnum === "1") mappedButtonId = "marcar_consulta";
-        else if (tnum === "2") mappedButtonId = "ver_medicos";
-        else if (tnum === "3") mappedButtonId = "atendente";
+        if (!hint && tnum === "1") mappedButtonId = "marcar_consulta";
+        else if (!hint && tnum === "2") mappedButtonId = "ver_medicos";
+        else if (!hint && tnum === "3") mappedButtonId = "atendente";
       }
     }
     if (mappedButtonId && !hint) {
       const mapped = mapSelectionToParams(mappedButtonId);
       extra = { ...extra, ...(mapped.extra || {}) };
       hint = hint || mapped.hint || null;
+    }
+    if (hint === "ATUALIZAR_NOME") {
+      nameAwait.set(fromKey, true);
     }
     const paciente_nome = `WhatsApp:${from}`;
     const paciente_telefone = from;
@@ -191,6 +204,95 @@ export async function zapiWebhook(req, res) {
     return res.json({ delivered: true });
   } catch (e) {
     console.error("zapiWebhook error:", e);
+    return res.status(500).json({ error: "internal_error" });
+  }
+}
+
+function pad(n) { return n.toString().padStart(2, "0"); }
+function ymd(date) {
+  const y = date.getFullYear();
+  const m = pad(date.getMonth() + 1);
+  const d = pad(date.getDate());
+  return `${y}-${m}-${d}`;
+}
+function hms(date) {
+  const hh = pad(date.getHours());
+  const mm = pad(date.getMinutes());
+  const ss = "00";
+  return `${hh}:${mm}:${ss}`;
+}
+
+export async function zapiRunReminders(req, res) {
+  try {
+    const now = new Date();
+    const targetStart = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    const targetEnd = new Date(targetStart.getTime() + 5 * 60 * 1000);
+    const dateStr = ymd(targetStart);
+    const startTime = hms(targetStart);
+    const endTime = hms(targetEnd);
+
+    const { data: disps, error: eDisp } = await supabase
+      .from("disponibilidades")
+      .select("*")
+      .eq("data", dateStr)
+      .gte("horario", startTime)
+      .lte("horario", endTime);
+    if (eDisp) return res.status(500).json({ error: eDisp.message });
+    if (!disps || disps.length === 0) return res.json({ sent: 0 });
+
+    let sent = 0;
+    for (const d of disps) {
+      const { data: ags, error: eAg } = await supabase
+        .from("agendamentos")
+        .select("*")
+        .eq("disponibilidade_id", d.id)
+        .eq("status", "agendado");
+      if (eAg || !ags || ags.length === 0) continue;
+
+      for (const ag of ags) {
+        // Tenta evitar reenvio (se coluna existir)
+        let skip = false;
+        try {
+          if (ag.lembrete_enviado) skip = true;
+        } catch {}
+        if (skip) continue;
+
+        let pacienteTel = null;
+        try {
+          if (ag.paciente_id) {
+            const { data: pac } = await supabase
+              .from("pacientes")
+              .select("telefone")
+              .eq("id", ag.paciente_id)
+              .single();
+            pacienteTel = pac?.telefone || null;
+          }
+        } catch {}
+        if (!pacienteTel) continue;
+
+        let medicoNome = "seu médico";
+        try {
+          const { data: med } = await supabase
+            .from("medicos")
+            .select("nome")
+            .eq("id", ag.medico_id)
+            .single();
+          if (med?.nome) medicoNome = med.nome;
+        } catch {}
+
+        const brData = `${d.data.split("-").reverse().join("/")}`;
+        const brHora = d.horario.slice(0, 5);
+        const msg = `🔔 CLÍNICA LUZ\n\nLembrete: sua consulta com ${medicoNome} é hoje, ${brData} às ${brHora}.\n\nSe precisar falar com um atendente, responda 3.`;
+        await sendText(pacienteTel, msg);
+        sent += 1;
+        try {
+          await supabase.from("agendamentos").update({ lembrete_enviado: true }).eq("id", ag.id);
+        } catch {}
+      }
+    }
+    return res.json({ sent });
+  } catch (e) {
+    console.error("zapiRunReminders error:", e);
     return res.status(500).json({ error: "internal_error" });
   }
 }

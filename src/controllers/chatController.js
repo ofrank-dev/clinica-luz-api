@@ -66,7 +66,7 @@ const rawMensagem = mensagemRaw;
   const pacienteNome = paciente_nome || "Visitante";
 
   if (structured) {
-    const { especialidade, medico_id, disponibilidade_id, hint } = req.body || {};
+    const { especialidade, medico_id, disponibilidade_id, hint, novo_nome } = req.body || {};
     if (hint === "LISTAR_ESPECIALIDADES") {
       const especs = ["Proctologia", "Dermatologia", "Clinico geral", "Nutrição", "Urologia", "Ginecologia"];
       const opts = especs.map((e) => ({ id: `esp_${e}`, label: e, next_action: "LISTAR_MEDICOS", params: { especialidade: e } }));
@@ -74,6 +74,39 @@ const rawMensagem = mensagemRaw;
     }
     if (hint === "ATENDENTE") {
       return send("ATENDENTE", {}, "👩‍💼 CLÍNICA LUZ\n\nEncaminhei para o atendente. Aguarde um momento.");
+    }
+    if (hint === "ATUALIZAR_NOME") {
+      return send("ATUALIZAR_NOME", {}, "📝 CLÍNICA LUZ\n\nPor favor, digite seu nome completo.");
+    }
+    if (hint === "SALVAR_NOME" || (novo_nome && String(novo_nome).trim().length > 1)) {
+      const nomeNovo = String(novo_nome || "").trim();
+      if (!nomeNovo) {
+        return send("ATUALIZAR_NOME", {}, "📝 Nome inválido. Tente novamente informando seu nome completo.");
+      }
+      try {
+        if (pacienteTelefone) {
+          const { data: pByTel } = await supabase
+            .from("pacientes")
+            .select("id")
+            .eq("telefone", pacienteTelefone)
+            .limit(1);
+          if (Array.isArray(pByTel) && pByTel[0]?.id) {
+            await supabase.from("pacientes").update({ nome: nomeNovo }).eq("id", pByTel[0].id);
+          } else {
+            await supabase.from("pacientes").insert([{ nome: nomeNovo, telefone: pacienteTelefone }]);
+          }
+        } else {
+          // Sem telefone: cria registro mínimo
+          await supabase.from("pacientes").insert([{ nome: nomeNovo }]);
+        }
+      } catch {}
+      const opts = [
+        { id: "marcar_consulta", label: "Marcar consulta", next_action: "LISTAR_ESPECIALIDADES" },
+        { id: "ver_medicos", label: "Ver médicos", next_action: "LISTAR_ESPECIALIDADES" },
+        { id: "atendente", label: "Falar com atendente", next_action: "ATENDENTE" },
+        { id: "atualizar_nome", label: "Atualizar meu nome", next_action: "ATUALIZAR_NOME" },
+      ];
+      return send("NOME_ATUALIZADO", {}, `📝 CLÍNICA LUZ\n\nNome atualizado para: ${nomeNovo}\n\nO que deseja fazer agora?`, opts);
     }
     try {
       if (disponibilidade_id) {
@@ -257,6 +290,7 @@ const rawMensagem = mensagemRaw;
         { id: "marcar_consulta", label: "Marcar consulta", next_action: "LISTAR_ESPECIALIDADES" },
         { id: "ver_medicos", label: "Ver médicos", next_action: "LISTAR_ESPECIALIDADES" },
         { id: "atendente", label: "Falar com atendente", next_action: "ATENDENTE" },
+        { id: "atualizar_nome", label: "Atualizar meu nome", next_action: "ATUALIZAR_NOME" },
       ];
       return send("SAUDACAO", {}, "👋 CLÍNICA LUZ\n\nComo posso ajudar?", opts);
     } else {
