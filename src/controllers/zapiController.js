@@ -66,6 +66,14 @@ async function sendButtons(to, title, options = []) {
     console.log("TOKEN:", _mask);
     const resButtons = await axios.post(url, payload, { headers: { "Client-Token": CLIENT_TOKEN, "Content-Type": "application/json" } });
     console.log("zapi sendButtons ok:", resButtons?.status);
+    const menuText =
+      `${title}\n` +
+      options
+        .slice(0, 3)
+        .map((o, i) => `${i + 1}. ${o.label}`)
+        .join("\n") +
+      `\nResponda com o número da opção.`;
+    await sendText(to, menuText);
   } catch (e) {
     console.error("zapi sendButtons error:", e?.response?.data || e.message);
     await sendText(to, title + " " + options.map((o) => `• ${o.label}`).join(" | "));
@@ -161,10 +169,17 @@ export async function zapiWebhook(req, res) {
     const { from, buttonId, text } = parseInbound(req.body || {});
     if (!from) return res.status(400).json({ error: "Missing sender (from)" });
     let extra = {};
-    if (buttonId) ({ extra } = mapSelectionToParams(buttonId));
+    let mappedButtonId = buttonId || null;
+    const tnum = String(text || "").trim();
+    if (!mappedButtonId) {
+      if (tnum === "1") mappedButtonId = "marcar_consulta";
+      else if (tnum === "2") mappedButtonId = "ver_medicos";
+      else if (tnum === "3") mappedButtonId = "atendente";
+    }
+    if (mappedButtonId) ({ extra } = mapSelectionToParams(mappedButtonId));
     const paciente_nome = `WhatsApp:${from}`;
     const paciente_telefone = from;
-    const mensagem = buttonId ? "menu" : (text || "oi");
+    const mensagem = mappedButtonId ? "menu" : (text || "oi");
     const result = await invokeChatStructured({ mensagem, paciente_nome, extra: { ...extra, paciente_telefone } });
     const reply = result?.reply || "Pronto.";
     const options = Array.isArray(result?.options) ? result.options : [];
