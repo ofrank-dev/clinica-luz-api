@@ -61,7 +61,7 @@ function buildMenuText(title, options = []) {
 
 async function sendButtons(to, title, options = []) {
   const phoneKey = String(to || "").replace(/\D/g, "");
-  optionMemory.set(phoneKey, options);
+  optionMemory.set(phoneKey, { options });
   const menu = buildMenuText(title, options);
   return sendText(to, menu);
 }
@@ -148,11 +148,14 @@ export async function zapiWebhook(req, res) {
     let mappedButtonId = buttonId || null;
     const tnum = String(text || "").trim();
     if (!mappedButtonId) {
-      const opts = optionMemory.get(fromKey);
-      if (opts && /^\d+$/.test(tnum)) {
+      const state = optionMemory.get(fromKey);
+      if (state?.options && /^\d+$/.test(tnum)) {
         const idx = Number(tnum) - 1;
-        if (idx >= 0 && idx < opts.length) {
-          mappedButtonId = opts[idx]?.id || null;
+        const chosen = state.options[idx];
+        if (chosen) {
+          mappedButtonId = chosen.id || null;
+          if (chosen.params && typeof chosen.params === "object") extra = { ...extra, ...chosen.params };
+          if (chosen.next_action) hint = chosen.next_action;
         }
       }
       if (!mappedButtonId) {
@@ -161,7 +164,11 @@ export async function zapiWebhook(req, res) {
         else if (tnum === "3") mappedButtonId = "atendente";
       }
     }
-    if (mappedButtonId) ({ extra, hint } = mapSelectionToParams(mappedButtonId));
+    if (mappedButtonId && !hint) {
+      const mapped = mapSelectionToParams(mappedButtonId);
+      extra = { ...extra, ...(mapped.extra || {}) };
+      hint = hint || mapped.hint || null;
+    }
     const paciente_nome = `WhatsApp:${from}`;
     const paciente_telefone = from;
     const mensagem = mappedButtonId ? "menu" : (text || "oi");
