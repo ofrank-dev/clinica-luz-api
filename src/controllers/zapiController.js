@@ -1,10 +1,10 @@
 import axios from "axios";
 import { chat } from "./chatController.js";
 
-const BASE = process.env.ZAPI_BASE_URL || "";
+const BASE = process.env.ZAPI_BASE_URL || "https://api.z-api.io";
 const TOKEN = process.env.ZAPI_TOKEN || "";
 const INSTANCE = process.env.ZAPI_INSTANCE || "";
-const CLIENT_TOKEN = process.env.ZAPI_CLIENT_TOKEN || "";
+const CLIENT_TOKEN = String(process.env.ZAPI_CLIENT_TOKEN || "").trim();
 
 function basePath() {
   const b = BASE.replace(/\/+$/, "");
@@ -16,8 +16,10 @@ async function sendText(to, text) {
   try {
     const url = `${basePath()}/send-text`;
     const payload = { phone: to, message: text };
-    console.log("TOKEN:", process.env.ZAPI_CLIENT_TOKEN);
-    await axios.post(url, payload, { headers: { "Client-Token": String(process.env.ZAPI_CLIENT_TOKEN).trim() } });
+    const _t = CLIENT_TOKEN;
+    const _mask = _t ? `${_t.slice(0, 4)}...${_t.slice(-4)}` : "undefined";
+    console.log("TOKEN:", _mask);
+    await axios.post(url, payload, { headers: { "Client-Token": CLIENT_TOKEN } });
   } catch (e) {
     console.error("zapi sendText error:", e?.response?.data || e.message);
   }
@@ -29,8 +31,10 @@ async function sendButtons(to, title, options = []) {
     const buttons = options.slice(0, 3).map((o) => ({ id: o.id, text: o.label }));
     const url = `${basePath()}/send-buttons`;
     const payload = { phone: to, message: title, buttons };
-    console.log("TOKEN:", process.env.ZAPI_CLIENT_TOKEN);
-    await axios.post(url, payload, { headers: { "Client-Token": String(process.env.ZAPI_CLIENT_TOKEN).trim() } });
+    const _t = CLIENT_TOKEN;
+    const _mask = _t ? `${_t.slice(0, 4)}...${_t.slice(-4)}` : "undefined";
+    console.log("TOKEN:", _mask);
+    await axios.post(url, payload, { headers: { "Client-Token": CLIENT_TOKEN } });
   } catch (e) {
     console.error("zapi sendButtons error:", e?.response?.data || e.message);
     await sendText(to, title + " " + options.map((o) => `• ${o.label}`).join(" | "));
@@ -43,8 +47,10 @@ async function sendList(to, title, options = []) {
     const items = options.map((o) => ({ id: o.id, title: o.label }));
     const url = `${basePath()}/send-list`;
     const payload = { phone: to, message: title, list: { title: title, items } };
-    console.log("TOKEN:", process.env.ZAPI_CLIENT_TOKEN);
-    await axios.post(url, payload, { headers: { "Client-Token": String(process.env.ZAPI_CLIENT_TOKEN).trim() } });
+    const _t = CLIENT_TOKEN;
+    const _mask = _t ? `${_t.slice(0, 4)}...${_t.slice(-4)}` : "undefined";
+    console.log("TOKEN:", _mask);
+    await axios.post(url, payload, { headers: { "Client-Token": CLIENT_TOKEN } });
   } catch (e) {
     console.error("zapi sendList error:", e?.response?.data || e.message);
     await sendButtons(to, title, options.slice(0, 3));
