@@ -5,14 +5,23 @@ export const chat = async (req, res) => {
   console.log("BODY ZAPI:", JSON.stringify(req.body, null, 2));
   const { paciente_nome } = req.body || {};
   const telefone = req.body?.phone || req.body?.paciente_telefone || null;
-  const mensagem =
-    req.body?.text?.message ||
-    req.body?.message ||
-    req.body?.body ||
-    req.body?.mensagem ||
-    "";
-  const mensagemFormatada = String(mensagem).toLowerCase();
-  const rawMensagem = mensagemFormatada;
+  // 🔥 Tratamento robusto da mensagem da Z-API
+let mensagemRaw = "";
+
+if (typeof req.body?.text === "string") {
+  mensagemRaw = req.body.text;
+} else if (typeof req.body?.text?.message === "string") {
+  mensagemRaw = req.body.text.message;
+} else if (typeof req.body?.message === "string") {
+  mensagemRaw = req.body.message;
+} else if (typeof req.body?.body === "string") {
+  mensagemRaw = req.body.body;
+} else if (typeof req.body?.mensagem === "string") {
+  mensagemRaw = req.body.mensagem;
+}
+
+const mensagemFormatada = mensagemRaw.trim().toLowerCase();
+const rawMensagem = mensagemRaw;
   const pacienteTelefone = telefone;
   const structured =
     String(req?.query?.format || "").toLowerCase() === "structured" ||
