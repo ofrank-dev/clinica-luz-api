@@ -3,16 +3,172 @@ const sessoes = {};
 
 export const chat = async (req, res) => {
   const { mensagem, paciente_nome } = req.body;
+  const pacienteTelefone = req.body?.paciente_telefone || null;
+  const structured =
+    String(req?.query?.format || "").toLowerCase() === "structured" ||
+    String(req?.body?.format || "").toLowerCase() === "structured" ||
+    String(req?.headers?.["x-chat-format"] || "").toLowerCase() === "structured";
+  const send = (action, params, reply, options) => {
+    if (structured) {
+      const out = { action, params: params || {}, reply };
+      if (options && Array.isArray(options) && options.length) out.options = options;
+      return res.json(out);
+    }
+    return res.json({ resposta: reply });
+  };
 
   if (!mensagem) {
-    return res.json({
-      resposta:
-        "Envie a mensagem. Ex.: /api/chat?mensagem=consulta&paciente_nome=SeuNome",
-    });
+    return send(
+      "FALLBACK",
+      {},
+      "Envie a mensagem. Ex.: /api/chat?mensagem=consulta&paciente_nome=SeuNome"
+    );
   }
   const pacienteNome = paciente_nome || "Visitante";
 
+  if (structured) {
+    const { especialidade, medico_id, disponibilidade_id } = req.body || {};
+    try {
+      if (disponibilidade_id) {
+        const { data: disp, error: eDisp } = await supabase
+          .from("disponibilidades")
+          .select("*")
+          .eq("id", disponibilidade_id)
+          .eq("disponivel", true)
+          .single();
+        if (eDisp || !disp) {
+          return send("LISTAR_HORARIOS", { medico_id }, "Horário indisponível. Escolha outro.");
+        }
+        const mid = medico_id || disp.medico_id;
+        let pId = null;
+        try {
+          if (pacienteTelefone) {
+            const { data: pByTel } = await supabase
+              .from("pacientes")
+              .select("id")
+              .eq("telefone", pacienteTelefone)
+              .limit(1);
+            pId = pByTel?.[0]?.id || null;
+            if (!pId && pacienteNome && pacienteNome !== "Visitante") {
+              const { data: pNovoTel } = await supabase
+                .from("pacientes")
+                .insert([{ nome: pacienteNome, telefone: pacienteTelefone }])
+                .select("id")
+                .single();
+              pId = pNovoTel?.id || null;
+            }
+          } else {
+            const { data: pSel } = await supabase
+              .from("pacientes")
+              .select("id")
+              .ilike("nome", `%${pacienteNome}%`)
+              .limit(1);
+            pId = pSel?.[0]?.id || null;
+            if (!pId && pacienteNome && pacienteNome !== "Visitante") {
+              const { data: pNovo } = await supabase
+                .from("pacientes")
+                .insert([{ nome: pacienteNome }])
+                .select("id")
+                .single();
+              pId = pNovo?.id || null;
+            }
+          }
+        } catch {}
+        const payload = {
+          medico_id: mid,
+          disponibilidade_id: disp.id,
+          status: "agendado",
+        };
+        if (pId) payload.paciente_id = pId;
+        const { data: novoAg, error: eAg } = await supabase
+          .from("agendamentos")
+          .insert([payload])
+          .select()
+          .single();
+        if (eAg) return res.status(500).json({ error: eAg.message });
+        await supabase.from("disponibilidades").update({ disponivel: false }).eq("id", disp.id);
+        return send(
+          "CRIAR_AGENDAMENTO",
+          {
+            medico_id: mid,
+            disponibilidade_id: disp.id,
+            data: disp.data,
+            hora: disp.horario,
+            paciente_nome: pacienteNome,
+            paciente_telefone: pacienteTelefone || undefined,
+            agendamento_id: novoAg?.id,
+          },
+          `Consulta agendada em ${disp.data} às ${disp.horario}.`
+        );
+      }
+      if (medico_id) {
+        const { data: horarios, error: eHor } = await supabase
+          .from("disponibilidades")
+          .select("*")
+          .eq("medico_id", medico_id)
+          .eq("disponivel", true)
+          .order("data", { ascending: true })
+          .order("horario", { ascending: true });
+        if (eHor) return res.status(500).json({ error: eHor.message });
+        if (!horarios || horarios.length === 0) {
+          return send("LISTAR_HORARIOS", { medico_id }, "Não há horários disponíveis.");
+        }
+        const opts = horarios.slice(0, 10).map((h) => ({
+          id: `disp_${h.id}`,
+          label: `${h.data} ${h.horario}`,
+          next_action: "CRIAR_AGENDAMENTO",
+          params: { disponibilidade_id: h.id, medico_id },
+        }));
+        const lista = horarios.map((h) => `${h.data} às ${h.horario}`).join(", ");
+        return send("LISTAR_HORARIOS", { medico_id }, `Horários disponíveis: ${lista}`, opts);
+      }
+      if (especialidade) {
+        const esp = String(especialidade);
+        const espNoAcc = esp.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+        const orFilter = `especialidade.ilike.%${esp}%,especialidade.ilike.%${espNoAcc}%`;
+        const { data: medicos, error: eMed } = await supabase
+          .from("medicos")
+          .select("*")
+          .or(orFilter)
+          .eq("ativo", true);
+        if (eMed) return res.status(500).json({ error: eMed.message });
+        if (!medicos || medicos.length === 0) {
+          return send("LISTAR_MEDICOS", { especialidade: esp }, `Não há médicos disponíveis para ${esp}`);
+        }
+        const opts = medicos.slice(0, 10).map((m) => ({
+          id: `med_${m.id}`,
+          label: m.nome,
+          next_action: "LISTAR_HORARIOS",
+          params: { medico_id: m.id, medico_nome: m.nome },
+        }));
+        const lista = medicos.map((m) => `${m.nome}`).join(", ");
+        return send("LISTAR_MEDICOS", { especialidade: esp }, `Médicos disponíveis em ${esp}: ${lista}`, opts);
+      }
+    } catch (e) {
+      // prossegue com a lógica padrão caso algo falhe
+    }
+  }
+
   let pacienteId = req.body?.paciente_id || null;
+  if (!pacienteId && pacienteTelefone) {
+    try {
+      const { data: pByTel } = await supabase
+        .from("pacientes")
+        .select("id")
+        .eq("telefone", pacienteTelefone)
+        .limit(1);
+      if (Array.isArray(pByTel) && pByTel[0]?.id) {
+        pacienteId = pByTel[0].id;
+      } else if (pacienteNome && pacienteNome !== "Visitante") {
+        const { data: pNovoTel } = await supabase
+          .from("pacientes")
+          .insert([{ nome: pacienteNome, telefone: pacienteTelefone }])
+          .select("id")
+          .single();
+        pacienteId = pNovoTel?.id ?? null;
+      }
+    } catch {}
+  }
   if (!pacienteId && pacienteNome && pacienteNome !== "Visitante") {
     try {
       const { data: pSel } = await supabase
@@ -48,29 +204,46 @@ export const chat = async (req, res) => {
   const textoSessao = (mensagem || "").toLowerCase().trim();
   const toSeconds = (h) => (/^\d{2}:\d{2}$/.test(h) ? `${h}:00` : h);
   if (sessao.etapa === "inicio") {
-    sessao.etapa = "aguardando_nome";
-    return res.json({ resposta: "Qual é o seu nome completo?" });
+    if (structured && pacienteNome && pacienteNome !== "Visitante") {
+      const opts = [
+        { id: "marcar_consulta", label: "Marcar consulta", next_action: "LISTAR_ESPECIALIDADES" },
+        { id: "ver_medicos", label: "Ver médicos", next_action: "LISTAR_ESPECIALIDADES" },
+        { id: "atendente", label: "Falar com atendente", next_action: "ATENDENTE" },
+      ];
+      return send("SAUDACAO", {}, "Posso te ajudar com seu agendamento?", opts);
+    } else {
+      sessao.etapa = "aguardando_nome";
+      return send("SAUDACAO", {}, "Qual é o seu nome completo?");
+    }
   }
   if (sessao.etapa === "aguardando_nome") {
     sessao.nome = textoSessao;
-    sessao.etapa = "aguardando_medico";
-    return res.json({ resposta: "Qual médico você deseja consultar?" });
+    const opts = [
+      { id: "marcar_consulta", label: "Marcar consulta", next_action: "LISTAR_ESPECIALIDADES" },
+      { id: "ver_medicos", label: "Ver médicos", next_action: "LISTAR_ESPECIALIDADES" },
+      { id: "atendente", label: "Falar com atendente", next_action: "ATENDENTE" },
+    ];
+    return send("SAUDACAO", {}, "Como posso ajudar você hoje?", opts);
   }
   if (sessao.etapa === "aguardando_medico") {
     sessao.medico = textoSessao;
     sessao.etapa = "aguardando_data";
-    return res.json({ resposta: "Informe a data no formato YYYY-MM-DD." });
+    return send("LISTAR_HORARIOS", {}, "Informe a data no formato YYYY-MM-DD.");
   }
   if (sessao.etapa === "aguardando_data") {
     const m = textoSessao.match(/^\d{4}-\d{2}-\d{2}$/);
-    if (!m) return res.json({ resposta: "Data inválida. Use YYYY-MM-DD." });
+    if (!m) return send("FALLBACK", {}, "Data inválida. Use YYYY-MM-DD.");
     sessao.data = m[0];
     sessao.etapa = "aguardando_hora";
-    return res.json({ resposta: "Informe a hora no formato HH:MM ou HH:MM:SS." });
+    return send(
+      "LISTAR_HORARIOS",
+      {},
+      "Informe a hora no formato HH:MM ou HH:MM:SS."
+    );
   }
   if (sessao.etapa === "aguardando_hora") {
     const hm = textoSessao.match(/^\d{2}:\d{2}(?::\d{2})?$/);
-    if (!hm) return res.json({ resposta: "Hora inválida. Use HH:MM ou HH:MM:SS." });
+    if (!hm) return send("FALLBACK", {}, "Hora inválida. Use HH:MM ou HH:MM:SS.");
     sessao.hora = toSeconds(hm[0]);
     let medicoParaAgendar = null;
     try {
@@ -84,7 +257,11 @@ export const chat = async (req, res) => {
     } catch {}
     if (!medicoParaAgendar) {
       sessao.etapa = "aguardando_medico";
-      return res.json({ resposta: "Médico não encontrado. Informe o nome novamente." });
+      return send(
+        "LISTAR_MEDICOS",
+        {},
+        "Médico não encontrado. Informe o nome novamente."
+      );
     }
     const data = sessao.data;
     const hora = sessao.hora;
@@ -98,25 +275,47 @@ export const chat = async (req, res) => {
       .single();
     if (errDisp) return res.status(500).json({ error: errDisp.message });
     if (!disponibilidade) {
-      return res.json({ resposta: `Horário ${data} às ${hora} indisponível. Informe outra hora.` });
+      return send(
+        "LISTAR_HORARIOS",
+        { medico_id: medicoParaAgendar.id, data, hora },
+        `Horário ${data} às ${hora} indisponível. Informe outra hora.`
+      );
     }
     let pid = pacienteId;
     if (typeof pid === "string" && pid.startsWith("anon:") && sessao.nome) {
       try {
-        const { data: pSel } = await supabase
-          .from("pacientes")
-          .select("id")
-          .ilike("nome", `%${sessao.nome}%`)
-          .limit(1);
-        if (Array.isArray(pSel) && pSel[0]?.id) {
-          pid = pSel[0].id;
-        } else {
-          const { data: pNovo } = await supabase
+        if (pacienteTelefone) {
+          const { data: pByTel } = await supabase
             .from("pacientes")
-            .insert([{ nome: sessao.nome }])
             .select("id")
-            .single();
-          pid = pNovo?.id ?? pid;
+            .eq("telefone", pacienteTelefone)
+            .limit(1);
+          if (Array.isArray(pByTel) && pByTel[0]?.id) {
+            pid = pByTel[0].id;
+          } else {
+            const { data: pNovoTel } = await supabase
+              .from("pacientes")
+              .insert([{ nome: sessao.nome, telefone: pacienteTelefone }])
+              .select("id")
+              .single();
+            pid = pNovoTel?.id ?? pid;
+          }
+        } else {
+          const { data: pSel } = await supabase
+            .from("pacientes")
+            .select("id")
+            .ilike("nome", `%${sessao.nome}%`)
+            .limit(1);
+          if (Array.isArray(pSel) && pSel[0]?.id) {
+            pid = pSel[0].id;
+          } else {
+            const { data: pNovo } = await supabase
+              .from("pacientes")
+              .insert([{ nome: sessao.nome }])
+              .select("id")
+              .single();
+            pid = pNovo?.id ?? pid;
+          }
         }
       } catch {}
     }
@@ -138,7 +337,17 @@ export const chat = async (req, res) => {
       .eq("id", disponibilidade.id);
     if (errUpd) return res.status(500).json({ error: errUpd.message });
     sessoes[pacienteId] = { etapa: "inicio", nome: null, medico: null, data: null, hora: null };
-    return res.json({ resposta: `Consulta agendada em ${data} às ${hora}.` });
+    return send(
+      "CRIAR_AGENDAMENTO",
+      {
+        medico_id: medicoParaAgendar.id,
+        disponibilidade_id: disponibilidade.id,
+        data,
+        hora,
+        paciente_nome: sessao.nome || pacienteNome,
+      },
+      `Consulta agendada em ${data} às ${hora}.`
+    );
   }
 
   const normalize = (s) =>
@@ -152,7 +361,10 @@ export const chat = async (req, res) => {
 
   // Etapa 1: Perguntar especialidade
   if (texto.includes("consulta")) {
-    return res.json({ resposta: "Qual especialidade você deseja?" });
+    const especialidadesOpts = ["Proctologia", "Dermatologia", "Clinico geral", "Nutrição", "Urologia", "Ginecologia"].map(
+      (e) => ({ id: `esp_${e}`, label: e, next_action: "LISTAR_MEDICOS", params: { especialidade: e } })
+    );
+    return send("LISTAR_ESPECIALIDADES", {}, "Qual especialidade você deseja?", especialidadesOpts);
   }
 
   // Etapa 2: Escolher especialidade → listar médicos
@@ -172,11 +384,21 @@ export const chat = async (req, res) => {
       if (error) return res.status(500).json({ error: error.message });
 
       if (medicos.length === 0)
-        return res.json({ resposta: `Não há médicos disponíveis para ${esp}` });
+        return send(
+          "LISTAR_MEDICOS",
+          { especialidade: esp },
+          `Não há médicos disponíveis para ${esp}`
+        );
 
       // Resposta com lista de médicos
       const listaMedicos = medicos.map((m) => `${m.nome}`).join(", ");
-      return res.json({ resposta: `Médicos disponíveis em ${esp}: ${listaMedicos}` });
+      const opts = medicos.slice(0, 10).map((m) => ({
+        id: `med_${m.id}`,
+        label: m.nome,
+        next_action: "LISTAR_HORARIOS",
+        params: { medico_id: m.id, medico_nome: m.nome },
+      }));
+      return send("LISTAR_MEDICOS", { especialidade: esp }, `Médicos disponíveis em ${esp}: ${listaMedicos}`, opts);
     }
   }
 
@@ -229,7 +451,11 @@ export const chat = async (req, res) => {
         }
       }
       if (!medicoParaAgendar) {
-        return res.json({ resposta: "Não identifiquei o médico. Envie: Nome do médico + data às hora" });
+        return send(
+          "LISTAR_MEDICOS",
+          {},
+          "Não identifiquei o médico. Envie: Nome do médico + data às hora"
+        );
       }
       const { data: disponibilidade, error: errDisp } = await supabase
         .from("disponibilidades")
@@ -241,7 +467,11 @@ export const chat = async (req, res) => {
         .single();
       if (errDisp) return res.status(500).json({ error: errDisp.message });
       if (!disponibilidade) {
-        return res.json({ resposta: `Horário ${data} às ${hora} não disponível para ${medicoParaAgendar.nome}.` });
+        return send(
+          "LISTAR_HORARIOS",
+          { medico_id: medicoParaAgendar.id, data, hora },
+          `Horário ${data} às ${hora} não disponível para ${medicoParaAgendar.nome}.`
+        );
       }
       let pacienteId = null;
       try {
@@ -278,7 +508,17 @@ export const chat = async (req, res) => {
         .update({ disponivel: false })
         .eq("id", disponibilidade.id);
       if (errUpd) return res.status(500).json({ error: errUpd.message });
-      return res.json({ resposta: `Consulta agendada com ${medicoParaAgendar.nome} em ${data} às ${hora}` });
+      return send(
+        "CRIAR_AGENDAMENTO",
+        {
+          medico_id: medicoParaAgendar.id,
+          disponibilidade_id: disponibilidade.id,
+          data,
+          hora,
+          paciente_nome: pacienteNome,
+        },
+        `Consulta agendada com ${medicoParaAgendar.nome} em ${data} às ${hora}`
+      );
     }
   }
   if (medicoEscolhido) {
@@ -291,13 +531,23 @@ export const chat = async (req, res) => {
       .order("horario", { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
     if (horarios.length === 0)
-      return res.json({ resposta: `Não há horários disponíveis para ${medicoEscolhido.nome}` });
+      return send(
+        "LISTAR_HORARIOS",
+        { medico_id: medicoEscolhido.id },
+        `Não há horários disponíveis para ${medicoEscolhido.nome}`
+      );
     const listaHorarios = horarios.map((h) => `${h.data} às ${h.horario}`).join(", ");
-    return res.json({ resposta: `Horários disponíveis para ${medicoEscolhido.nome}: ${listaHorarios}` });
+    const opts = horarios.slice(0, 10).map((h) => ({
+      id: `disp_${h.id}`,
+      label: `${h.data} ${h.horario}`,
+      next_action: "CRIAR_AGENDAMENTO",
+      params: { disponibilidade_id: h.id, medico_id: medicoEscolhido.id, data: h.data, hora: h.horario },
+    }));
+    return send("LISTAR_HORARIOS", { medico_id: medicoEscolhido.id }, `Horários disponíveis para ${medicoEscolhido.nome}: ${listaHorarios}`, opts);
   }
 
   // removido: fluxo duplicado de agendamento
 
   // Mensagem default
-  return res.json({ resposta: "Desculpe, não entendi. Pode repetir?" });
+  return send("FALLBACK", {}, "Desculpe, não entendi. Pode repetir?");
 };
