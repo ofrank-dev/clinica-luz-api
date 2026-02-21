@@ -18,6 +18,12 @@ export const chat = async (req, res) => {
     const names = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
     return names[dt.getDay()];
   };
+  const isWeekend = (d) => {
+    const [yyyy, mm, dd] = String(d).split("-");
+    const dt = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+    const wd = dt.getDay();
+    return wd === 0 || wd === 6;
+  };
   const pad2 = (n) => String(n).padStart(2, "0");
   const now = new Date();
   const todayYMD = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
@@ -235,7 +241,7 @@ const rawMensagem = mensagemRaw;
         const seen = new Set();
         const dias = [];
         for (const h of horarios) {
-          if (!seen.has(h.data)) {
+          if (!seen.has(h.data) && !isWeekend(h.data)) {
             seen.add(h.data);
             dias.push(h.data);
             if (dias.length >= 10) break;
@@ -661,13 +667,14 @@ const rawMensagem = mensagemRaw;
       .order("data", { ascending: true })
       .order("horario", { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
-    if (horarios.length === 0)
+    const horariosValid = horarios.filter((h) => !isWeekend(h.data));
+    if (horariosValid.length === 0)
       return send(
         "LISTAR_HORARIOS",
         { medico_id: medicoEscolhido.id },
         `Não há horários disponíveis para ${medicoEscolhido.nome}`
       );
-    const top = horarios.slice(0, 10);
+    const top = horariosValid.slice(0, 10);
     const opts = top.map((h) => ({
       id: `disp_${h.id}`,
       label: `${formatBRDate(h.data)} ${formatTime(h.horario)}`,
