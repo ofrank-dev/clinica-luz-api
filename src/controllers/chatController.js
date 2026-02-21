@@ -2,8 +2,18 @@ import supabase from "../database/supabase.js";
 const sessoes = {};
 
 export const chat = async (req, res) => {
-  const { mensagem, paciente_nome } = req.body;
-  const pacienteTelefone = req.body?.paciente_telefone || null;
+  console.log("BODY ZAPI:", JSON.stringify(req.body, null, 2));
+  const { paciente_nome } = req.body || {};
+  const telefone = req.body?.phone || req.body?.paciente_telefone || null;
+  const mensagem =
+    req.body?.text?.message ||
+    req.body?.message ||
+    req.body?.body ||
+    req.body?.mensagem ||
+    "";
+  const mensagemFormatada = String(mensagem).toLowerCase();
+  const rawMensagem = mensagemFormatada;
+  const pacienteTelefone = telefone;
   const structured =
     String(req?.query?.format || "").toLowerCase() === "structured" ||
     String(req?.body?.format || "").toLowerCase() === "structured" ||
@@ -17,7 +27,7 @@ export const chat = async (req, res) => {
     return res.json({ resposta: reply });
   };
 
-  if (!mensagem) {
+  if (!mensagemFormatada) {
     return send(
       "FALLBACK",
       {},
@@ -201,7 +211,7 @@ export const chat = async (req, res) => {
     };
   }
   const sessao = sessoes[pacienteId];
-  const textoSessao = (mensagem || "").toLowerCase().trim();
+  const textoSessao = String(rawMensagem || "").toLowerCase().trim();
   const toSeconds = (h) => (/^\d{2}:\d{2}$/.test(h) ? `${h}:00` : h);
   if (sessao.etapa === "inicio") {
     if (structured && pacienteNome && pacienteNome !== "Visitante") {
@@ -355,9 +365,9 @@ export const chat = async (req, res) => {
       .normalize("NFD")
       .replace(/\p{Diacritic}/gu, "")
       .toLowerCase();
-  const texto = normalize(mensagem);
-  const strip = (s) => normalize(s).replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
-  const textoStripped = strip(mensagem);
+  const texto = normalize(String(rawMensagem || ""));
+  const strip = (s) => normalize(String(s || "")).replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+  const textoStripped = strip(rawMensagem);
 
   // Etapa 1: Perguntar especialidade
   if (texto.includes("consulta")) {
@@ -419,16 +429,17 @@ export const chat = async (req, res) => {
   // Se a mensagem já contiver data e hora, prioriza tentar o agendamento diretamente
   {
     const dateTimeR = /(\d{4}-\d{2}-\d{2})\s*[^\d]{0,5}\s*(\d{2}:\d{2}(?::\d{2})?)/i;
-    const dt = dateTimeR.exec(mensagem);
-    const dataOnly = mensagem.match(/(\d{4}-\d{2}-\d{2})/);
-    const horaOnly = mensagem.match(/(\d{2}:\d{2}(?::\d{2})?)/);
+    const dt = dateTimeR.exec(rawMensagem);
+    const dataOnly = String(rawMensagem).match(/(\d{4}-\d{2}-\d{2})/);
+    const horaOnly = String(rawMensagem).match(/(\d{2}:\d{2}(?::\d{2})?)/);
     if (dt || (dataOnly && horaOnly)) {
       const data = dt ? dt[1] : dataOnly[1];
       const baseHora = dt ? dt[2] : horaOnly[1];
       const hora = /^\d{2}:\d{2}$/.test(baseHora) ? `${baseHora}:00` : baseHora;
       let medicoParaAgendar = medicoEscolhido;
       if (!medicoParaAgendar) {
-        const nomeBruto = dt ? mensagem.slice(0, dt.index) : mensagem.replace(`${data}`, "").replace(`${hora}`, "");
+        const msgStr = String(rawMensagem || "");
+        const nomeBruto = dt ? msgStr.slice(0, dt.index) : msgStr.replace(`${data}`, "").replace(`${hora}`, "");
         const possivelNome = nomeBruto
           .replace(/["“”]/g, "")
           .replace(/\b(?:às|as)\b/gi, "")
